@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from util import sample_and_group 
 
-class Local_op(nn.Module):
+class Local_op(nn.Module):  # 处理临近点特征
     def __init__(self, in_channels, out_channels):
         super(Local_op, self).__init__()
         self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size=1, bias=False)
@@ -14,7 +14,7 @@ class Local_op(nn.Module):
     def forward(self, x):
         b, n, s, d = x.size()  # torch.Size([32, 512, 32, 6]) 
         x = x.permute(0, 1, 3, 2)   
-        x = x.reshape(-1, d, s) 
+        x = x.reshape(-1, d, s)     # B, D, N
         batch_size, _, N = x.size()
         x = F.relu(self.bn1(self.conv1(x))) # B, D, N
         x = F.relu(self.bn2(self.conv2(x))) # B, D, N
@@ -50,22 +50,21 @@ class Pct(nn.Module):
 
     def forward(self, x):
         xyz = x.permute(0, 2, 1)
-        batch_size, _, _ = x.size()
-        # B, D, N
+        batch_size, _, _ = x.size()     # B, D, N
         x = F.relu(self.bn1(self.conv1(x)))
-        # B, D, N
         x = F.relu(self.bn2(self.conv2(x)))
-        x = x.permute(0, 2, 1)
+        x = x.permute(0, 2, 1)          # B,1024,64
         new_xyz, new_feature = sample_and_group(npoint=512, radius=0.15, nsample=32, xyz=xyz, points=x)         
-        feature_0 = self.gather_local_0(new_feature)
+        feature_0 = self.gather_local_0(new_feature)    # B,128，512
         feature = feature_0.permute(0, 2, 1)
         new_xyz, new_feature = sample_and_group(npoint=256, radius=0.2, nsample=32, xyz=new_xyz, points=feature) 
-        feature_1 = self.gather_local_1(new_feature)
+        feature_1 = self.gather_local_1(new_feature)    # B,256，256
 
-        x = self.pt_last(feature_1)
-        x = torch.cat([x, feature_1], dim=1)
-        x = self.conv_fuse(x)
-        x = F.adaptive_max_pool1d(x, 1).view(batch_size, -1)
+        x = self.pt_last(feature_1)     # B, D=1024, N=256
+
+        x = torch.cat([x, feature_1], dim=1)    # B, D=1024+256, N=256
+        x = self.conv_fuse(x)           # B, D=1024, N=256
+        x = F.adaptive_max_pool1d(x, 1).view(batch_size, -1)    # B, D=1024
         x = F.leaky_relu(self.bn6(self.linear1(x)), negative_slope=0.2)
         x = self.dp1(x)
         x = F.leaky_relu(self.bn7(self.linear2(x)), negative_slope=0.2)
@@ -74,7 +73,7 @@ class Pct(nn.Module):
 
         return x
 
-class Point_Transformer_Last(nn.Module):
+class Point_Transformer_Last(nn.Module):    # Encoder核心，包含4*SA层
     def __init__(self, args, channels=256):
         super(Point_Transformer_Last, self).__init__()
         self.args = args
