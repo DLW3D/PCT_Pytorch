@@ -1,79 +1,105 @@
-import os
-import glob
-import h5py
+from os.path import join
+from helper_ply import read_ply
+from helper_tool import ConfigS3DIS as cfg
 import numpy as np
+import time, pickle, argparse, glob, os
 from torch.utils.data import Dataset
-
-def download():
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    DATA_DIR = os.path.join(BASE_DIR, 'data')
-    if not os.path.exists(DATA_DIR):
-        os.mkdir(DATA_DIR)
-    if not os.path.exists(os.path.join(DATA_DIR, 'modelnet40_ply_hdf5_2048')):
-        www = 'https://shapenet.cs.stanford.edu/media/modelnet40_ply_hdf5_2048.zip'
-        zipfile = os.path.basename(www)
-        os.system('wget %s; unzip %s' % (www, zipfile))
-        os.system('mv %s %s' % (zipfile[:-4], DATA_DIR))
-        os.system('rm %s' % (zipfile))
-
-def load_data(partition):
-    download()
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    DATA_DIR = os.path.join(BASE_DIR, 'data')
-    all_data = []
-    all_label = []
-    for h5_name in glob.glob(os.path.join(DATA_DIR, 'modelnet40_ply_hdf5_2048', 'ply_data_%s*.h5'%partition)):
-        f = h5py.File(h5_name)
-        data = f['data'][:].astype('float32')
-        label = f['label'][:].astype('int64')
-        f.close()
-        all_data.append(data)
-        all_label.append(label)
-    all_data = np.concatenate(all_data, axis=0)
-    all_label = np.concatenate(all_label, axis=0)
-    return all_data, all_label
-
-def random_point_dropout(pc, max_dropout_ratio=0.875):
-    ''' batch_pc: BxNx3 '''
-    # for b in range(batch_pc.shape[0]):
-    dropout_ratio = np.random.random()*max_dropout_ratio # 0~0.875    
-    drop_idx = np.where(np.random.random((pc.shape[0]))<=dropout_ratio)[0]
-    # print ('use random drop', len(drop_idx))
-
-    if len(drop_idx)>0:
-        pc[drop_idx,:] = pc[0,:] # set to the first point
-    return pc
-
-def translate_pointcloud(pointcloud):
-    xyz1 = np.random.uniform(low=2./3., high=3./2., size=[3])
-    xyz2 = np.random.uniform(low=-0.2, high=0.2, size=[3])
-       
-    translated_pointcloud = np.add(np.multiply(pointcloud, xyz1), xyz2).astype('float32')
-    return translated_pointcloud
-
-def jitter_pointcloud(pointcloud, sigma=0.01, clip=0.02):
-    N, C = pointcloud.shape
-    pointcloud += np.clip(sigma * np.random.randn(N, C), -1*clip, clip)
-    return pointcloud
 
 
 class S3DIS(Dataset):
-    def __init__(self, num_points, partition='train'):
-        self.data, self.label = load_data(partition)
-        self.num_points = num_points
-        self.partition = partition        
+    def __init__(self, test_area_idx, partition='train'):
+        self.split = partition
+        self.name = 'S3DIS'
+        self.path = '/data/S3DIS'
+        self.label_to_names = {0: 'ceiling',
+                               1: 'floor',
+                               2: 'wall',
+                               3: 'beam',
+                               4: 'column',
+                               5: 'window',
+                               6: 'door',
+                               7: 'table',
+                               8: 'chair',
+                               9: 'sofa',
+                               10: 'bookcase',
+                               11: 'board',
+                               12: 'clutter'}
+        self.num_classes = len(self.label_to_names)     # 13
+        self.label_values = np.sort([k for k, v in self.label_to_names.items()])    # array([ 0,  1,  2,  3,  4,  ...
+        self.label_to_idx = {l: i for i, l in enumerate(self.label_values)}     # ｛0：0, 1: 1, 2: 2, 3: 3, ...
+        self.ignored_labels = np.array([])
 
+        self.val_split = 'Area_' + str(test_area_idx)
+        self.all_files = glob.glob(join(self.path, 'original_ply', '*.ply'))    # 获取所有点云路径
+
+        # Initiate containers S：场景数量，P：原始点云数量，N：下采样后点云数量
+        self.val_proj = []          # 验证集原始点云投影 Sv*P
+        self.val_labels = []        # 验证集原始点云标签 Sv*P
+        self.possibility = {}       # 每个点概率 S*N
+        self.min_possibility = {}   # 每个场景最小概率 S
+        self.input_trees = []   # KDTree S
+        self.input_colors = []  # RGB S*N*3
+        self.input_labels = []  # 标签 S*N*1
+        self.input_names = []   # 区域名_场景名 S
+        self.load_sub_sampled_clouds(cfg.sub_grid_size)
+
+    def load_sub_sampled_clouds(self, sub_grid_size):
+        tree_path = join(self.path, 'input_{:.3f}'.format(sub_grid_size))
+        for i, file_path in enumerate(self.all_files):
+            t0 = time.time()
+            cloud_name = file_path.replace('/', '\\').split('\\')[-1][:-4]  # 获取点云名（去除路径去除后缀）
+            if self.val_split in cloud_name:    # 选中的为验证组，其余为训练组
+                cloud_split = 'validation'
+            else:
+                cloud_split = 'training'
+
+            if cloud_split != self.split:    # 跳过非选中组
+                continue
+
+            # Name of the input files
+            kd_tree_file = join(tree_path, '{:s}_KDTree.pkl'.format(cloud_name))    # 加载KD树
+            sub_ply_file = join(tree_path, '{:s}.ply'.format(cloud_name))           # 加载下采样后的点云数据
+
+            data = read_ply(sub_ply_file)
+            sub_colors = np.vstack((data['red'], data['green'], data['blue'])).T    # N*3
+            sub_labels = data['class']  # N*1
+
+            # Read pkl with search tree
+            with open(kd_tree_file, 'rb') as f:
+                search_tree = pickle.load(f)
+
+            self.input_trees += [search_tree]
+            self.input_colors += [sub_colors]
+            self.input_labels += [sub_labels]
+            self.input_names += [cloud_name]
+
+            size = sub_colors.shape[0] * 4 * 7
+            print('{:s} {:.1f} MB loaded in {:.1f}s'.format(kd_tree_file.replace('/', '\\').split('\\')[-1], size * 1e-6, time.time() - t0))
+
+        print('\nPreparing reprojected indices for testing')    # 为测试准备重投影的指标
+
+        # Get validation and test reprojected indices 获取验证和测试重投影的指标
+        for i, file_path in enumerate(self.all_files):
+            t0 = time.time()
+            cloud_name = file_path.replace('/', '\\').split('\\')[-1][:-4]
+
+            # Validation projection and labels
+            if self.val_split in cloud_name:
+                proj_file = join(tree_path, '{:s}_proj.pkl'.format(cloud_name))
+                with open(proj_file, 'rb') as f:
+                    proj_idx, labels = pickle.load(f)
+                self.val_proj += [proj_idx]
+                self.val_labels += [labels]
+                print('{:s} done in {:.1f}s'.format(cloud_name, time.time() - t0))
+
+    # Generate the input data flow
     def __getitem__(self, item):
-        pointcloud = self.data[item][:self.num_points]
-        label = self.label[item]
-        if self.partition == 'train':
-            pointcloud = random_point_dropout(pointcloud) # open for dgcnn not for our idea  for all
-            pointcloud = translate_pointcloud(pointcloud)
-            np.random.shuffle(pointcloud)
+        pointcloud = np.array(self.input_trees[item].data, copy=False)
+        label = self.input_labels[item]
         return pointcloud, label
 
     def __len__(self):
-        return self.data.shape[0]
+        return len(self.input_trees)
 
 
 if __name__ == '__main__':  # 测试用
