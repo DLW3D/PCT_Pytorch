@@ -79,77 +79,8 @@ class S3DIS(Dataset):
 
         print('Data Loaded Done!\n')    # 为测试准备重投影的指标
 
-    # Generate the input data flow
-    def get_batch_gen(self, split):
-        if split == 'training':
-            num_per_epoch = cfg.train_steps * cfg.batch_size
-        elif split == 'validation':
-            num_per_epoch = cfg.val_steps * cfg.val_batch_size
-
-        self.possibility = []
-        self.min_possibility = []
-        # Random initialize 随机初始化
-        for i, tree in enumerate(self.input_colors):
-            self.possibility += [np.random.rand(tree.data.shape[0]) * 1e-3]  # 为点云的每个原始点生成一个"概率"
-            self.min_possibility += [float(np.min(self.possibility[-1]))]  # 确定最小概率
-
-        def spatially_regular_gen():  # 空间正则生成器
-            # Generator loop
-            for i in range(num_per_epoch):  # 每epoch训练次数 * batch_size
-
-                # Choose the cloud with the lowest probability 选择存在最低概率点的点云
-                cloud_idx = int(np.argmin(self.min_possibility))
-
-                # choose the point with the minimum of possibility in the cloud as query point 选择该点云概率最低的点
-                point_ind = np.argmin(self.possibility[cloud_idx])
-
-                # Get all points within the cloud from tree structure 从树结构中获取云中的所有点坐标
-                points = np.array(self.input_trees[cloud_idx].data, copy=False)
-
-                # Center point of input region 获取该点云的概率最低点(称为中心点)坐标
-                center_point = points[point_ind, :].reshape(1, -1)  # 1*3
-
-                # Add noise to the center point 为中心点坐标添加噪声
-                noise = np.random.normal(scale=cfg.noise_init / 10, size=center_point.shape)  # 1*3
-                pick_point = center_point + noise.astype(center_point.dtype)
-
-                # Check if the number of points in the selected cloud is less than the predefined num_points
-                if len(points) < cfg.num_points:  # 检查点云数量是否足够
-                    # Query all points within the cloud 查询云中的所有点
-                    queried_idx = self.input_trees[cloud_idx].query(pick_point, k=len(points))[1][0]
-                else:
-                    # Query the predefined number of points 查询一定数量的点
-                    queried_idx = self.input_trees[cloud_idx].query(pick_point, k=cfg.num_points)[1][0]
-
-                # Shuffle index 随机打乱点云顺序
-                queried_idx = DP.shuffle_idx(queried_idx)
-                # Get corresponding points and colors based on the index 根据索引得到相应的点、颜色、标签
-                queried_pc_xyz = points[queried_idx]
-                queried_pc_xyz = queried_pc_xyz - pick_point  # 点云居中
-                queried_pc_colors = self.input_colors[cloud_idx][queried_idx]
-                queried_pc_labels = self.input_labels[cloud_idx][queried_idx]
-
-                # Update the possibility of the selected points 更新选择的点的概率，距离中心点越近增加越多
-                dists = np.sum(np.square((points[queried_idx] - pick_point).astype(np.float32)), axis=1)
-                delta = np.square(1 - dists / np.max(dists))
-                self.possibility[cloud_idx][queried_idx] += delta
-                self.min_possibility[cloud_idx] = float(np.min(self.possibility[cloud_idx]))  # 更新概率
-
-                # up_sampled with replacement 若点数不足，进行上采样（随机重复采样）
-                if len(points) < cfg.num_points:
-                    queried_pc_xyz, queried_pc_colors, queried_idx, queried_pc_labels = \
-                        DP.data_aug(queried_pc_xyz, queried_pc_colors, queried_pc_labels, queried_idx,
-                                    cfg.num_points)
-
-                return pick_point
-
-        gen_func = spatially_regular_gen
-        gen_types = (torch.float32, torch.float32, torch.int32, torch.int32, torch.int32)
-        gen_shapes = ([None, 3], [None, 3], [None], [None], [None])
-        return gen_func, gen_types, gen_shapes
-                
     def __getitem__(self, item):
-        pointcloud = np.array(self.input_trees[item].data, copy=False)
+        pointcloud = np.array(self.input_trees[item].data, copy=False, dtype=np.float)
         label = self.input_labels[item]
         # 打乱顺序
         idx = np.arange(len(pointcloud))
