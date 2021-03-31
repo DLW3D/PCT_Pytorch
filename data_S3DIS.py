@@ -60,9 +60,9 @@ class S3DIS(Dataset):
 
             # Name of the input files
             kd_tree_file = join(tree_path, '{:s}_KDTree.pkl'.format(cloud_name))  # 加载KD树
-            # sub_ply_file = join(tree_path, '{:s}.ply'.format(cloud_name))           # 加载下采样后的点云数据
+            sub_ply_file = join(tree_path, '{:s}.ply'.format(cloud_name))           # 加载下采样后的点云数据
 
-            # data = read_ply(sub_ply_file)
+            data = read_ply(sub_ply_file)
             sub_colors = np.vstack((data['red'], data['green'], data['blue'])).T  # N*3
             sub_labels = data['class']  # N*1
 
