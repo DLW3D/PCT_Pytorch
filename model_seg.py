@@ -46,14 +46,14 @@ class Seg(nn.Module):
                                         nn.BatchNorm1d(64),
                                         nn.LeakyReLU(negative_slope=0.2))
 
-        self.convs1 = nn.Conv1d(1024 * 3 + 64, 512, kernel_size=1, bias=False)
+        self.convs1 = nn.Conv1d(1024 * 3, 512, kernel_size=1, bias=False)
         self.dp1 = nn.Dropout(p=args.dropout)
         self.convs2 = nn.Conv1d(512, 256, kernel_size=1, bias=False)
         self.convs3 = nn.Conv1d(256, self.part_num, kernel_size=1, bias=False)
         self.bns1 = nn.BatchNorm1d(512)
         self.bns2 = nn.BatchNorm1d(256)
 
-    def forward(self, x, cls_label):
+    def forward(self, x):
         batch_size, _, num_point = x.size()  # B, D, N
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
@@ -68,10 +68,8 @@ class Seg(nn.Module):
         x_avg = F.adaptive_avg_pool1d(x, 1)     # B,D
         x_max_feature = x_max.view(batch_size, -1).unsqueeze(-1).repeat(1, 1, num_point)  # B,D,N
         x_avg_feature = x_avg.view(batch_size, -1).unsqueeze(-1).repeat(1, 1, num_point)  # B,D,N
-        cls_label_one_hot = cls_label.view(batch_size, 16, 1)
-        cls_label_feature = self.label_conv(cls_label_one_hot).repeat(1, 1, num_point)
-        x_global_feature = torch.cat([x_max_feature, x_avg_feature, cls_label_feature], 1)  # B, 2*1024 + 64, N
-        x = torch.cat((x, x_global_feature), 1)  # B, 1024 * 3 + 64, N
+        x_global_feature = torch.cat([x_max_feature, x_avg_feature], 1)  # B, 2*1024, N
+        x = torch.cat((x, x_global_feature), 1)  # B, 1024 * 3, N
 
         x = F.relu(self.bns1(self.convs1(x)))
         x = self.dp1(x)

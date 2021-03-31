@@ -27,9 +27,9 @@ def _init_():
     os.system('cp data.py checkpoints' + '/' + args.exp_name + '/' + 'data.py.backup')
 
 def train(args, io):
-    train_loader = DataLoader(S3DIS(5, args.num_points, partition='train'), num_workers=8,
+    train_loader = DataLoader(S3DIS(5, args.num_points, partition='train'), num_workers=2,
                               batch_size=args.batch_size, shuffle=True, drop_last=True)
-    test_loader = DataLoader(S3DIS(5, args.num_points, partition='val'), num_workers=8,
+    test_loader = DataLoader(S3DIS(5, args.num_points, partition='val'), num_workers=2,
                              batch_size=args.test_batch_size, shuffle=True, drop_last=False)
 
     device = torch.device("cuda" if args.cuda else "cpu")
