@@ -15,6 +15,7 @@ import sklearn.metrics as metrics
 
 import time
 
+
 def _init_():
     if not os.path.exists('checkpoints'):
         os.makedirs('checkpoints')
@@ -26,6 +27,7 @@ def _init_():
     os.system('cp model.py checkpoints' + '/' + args.exp_name + '/' + 'model.py.backup')
     os.system('cp util.py checkpoints' + '/' + args.exp_name + '/' + 'util.py.backup')
     os.system('cp data.py checkpoints' + '/' + args.exp_name + '/' + 'data.py.backup')
+
 
 def train(args, io):
     train_loader = DataLoader(S3DIS(5, args.num_points, partition='train'), num_workers=2,
@@ -61,7 +63,7 @@ def train(args, io):
         train_true = []
         idx = 0
         total_time = 0.0
-        for data, label in (train_loader):
+        for data, label in train_loader:
             data, label = data.to(device), label.to(device).squeeze()
             data = data.permute(0, 2, 1)
             batch_size = data.size()[0]
@@ -69,7 +71,7 @@ def train(args, io):
 
             start_time = time.time()
             logits = model(data)
-            loss = get_loss(logits, label, class_weights)     # TODO: class_weight
+            loss = get_loss(logits, label, class_weights)
             loss.backward()
             opt.step()
             end_time = time.time()
@@ -82,7 +84,7 @@ def train(args, io):
             train_pred.append(preds.detach().cpu().numpy())
             idx += 1
 
-        print ('train total time is',total_time)
+        print('train total time is', total_time)
         train_true = np.concatenate(train_true)
         train_pred = np.concatenate(train_pred)
         outstr = 'Train %d, loss: %.6f, train acc: %.6f, train avg acc: %.6f' % (epoch,
@@ -98,43 +100,44 @@ def train(args, io):
         ####################
         # Test
         ####################
-        test_loss = 0.0
-        count = 0.0
-        model.eval()
-        test_pred = []
-        test_true = []
-        total_time = 0.0
-        for data, label in test_loader:
-            data, label = data.to(device), label.to(device).squeeze()
-            data = data.permute(0, 2, 1)
-            batch_size = data.size()[0]
-            start_time = time.time()
-            logits = model(data)
-            end_time = time.time()
-            total_time += (end_time - start_time)
-            loss = criterion(logits, label)
-            preds = logits.max(dim=1)[1]
-            count += batch_size
-            test_loss += loss.item() * batch_size
-            test_true.append(label.cpu().numpy())
-            test_pred.append(preds.detach().cpu().numpy())
-        print ('test total time is', total_time)
-        test_true = np.concatenate(test_true)
-        test_pred = np.concatenate(test_pred)
-        test_acc = metrics.accuracy_score(test_true.reshape(-1), test_pred.reshape(-1))
-        avg_per_class_acc = metrics.balanced_accuracy_score(test_true.reshape(-1), test_pred.reshape(-1))
-        outstr = 'Test %d, loss: %.6f, test acc: %.6f, test avg acc: %.6f' % (epoch,
-                                                                            test_loss*1.0/count,
-                                                                            test_acc,
-                                                                            avg_per_class_acc)
-        io.cprint(outstr)
-        if test_acc >= best_test_acc:
-            best_test_acc = test_acc
-            # torch.save(model.state_dict(), 'checkpoints/%s/models/model.t7' % args.exp_name)
+        if epoch//10 == 0:
+            test_loss = 0.0
+            count = 0.0
+            model.eval()
+            test_pred = []
+            test_true = []
+            total_time = 0.0
+            for data, label in test_loader:
+                data, label = data.to(device), label.to(device).squeeze()
+                data = data.permute(0, 2, 1)
+                batch_size = data.size()[0]
+                start_time = time.time()
+                logits = model(data)
+                end_time = time.time()
+                total_time += (end_time - start_time)
+                loss = criterion(logits, label)
+                preds = logits.max(dim=1)[1]
+                count += batch_size
+                test_loss += loss.item() * batch_size
+                test_true.append(label.cpu().numpy())
+                test_pred.append(preds.detach().cpu().numpy())
+            print ('test total time is', total_time)
+            test_true = np.concatenate(test_true)
+            test_pred = np.concatenate(test_pred)
+            test_acc = metrics.accuracy_score(test_true.reshape(-1), test_pred.reshape(-1))
+            avg_per_class_acc = metrics.balanced_accuracy_score(test_true.reshape(-1), test_pred.reshape(-1))
+            outstr = 'Test %d, loss: %.6f, test acc: %.6f, test avg acc: %.6f' % (epoch,
+                                                                                  test_loss*1.0/count,
+                                                                                  test_acc,
+                                                                                  avg_per_class_acc)
+            io.cprint(outstr)
+            if test_acc >= best_test_acc:
+                best_test_acc = test_acc
+                # torch.save(model.state_dict(), 'checkpoints/%s/models/model.t7' % args.exp_name)
 
 
 def test(args, io):
-    test_loader = DataLoader(S3DIS(5, partition='test'),
+    test_loader = DataLoader(S3DIS(5, args.num_points, partition='test'),
                              batch_size=args.test_batch_size, shuffle=True, drop_last=False)
 
     device = torch.device("cuda" if args.cuda else "cpu")
@@ -162,6 +165,7 @@ def test(args, io):
     outstr = 'Test :: test acc: %.6f, test avg acc: %.6f'%(test_acc, avg_per_class_acc)
     io.cprint(outstr)
 
+
 if __name__ == "__main__":
     # Training settings
     parser = argparse.ArgumentParser(description='Point Cloud Recognition')
@@ -187,7 +191,7 @@ if __name__ == "__main__":
                         help='random seed (default: 1)')
     parser.add_argument('--eval', type=bool,  default=False,
                         help='evaluate the model')
-    parser.add_argument('--num_points', type=int, default=40960,     # Deleted
+    parser.add_argument('--num_points', type=int, default=2048,     # Deleted
                         help='num of points to use')
     parser.add_argument('--dropout', type=float, default=0.5,
                         help='dropout rate')
