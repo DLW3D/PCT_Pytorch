@@ -59,9 +59,9 @@ class S3DIS(Dataset):
 
             # Name of the input files
             kd_tree_file = join(tree_path, '{:s}_KDTree.pkl'.format(cloud_name))    # 加载KD树
-            sub_ply_file = join(tree_path, '{:s}.ply'.format(cloud_name))           # 加载下采样后的点云数据
+            # sub_ply_file = join(tree_path, '{:s}.ply'.format(cloud_name))           # 加载下采样后的点云数据
 
-            data = read_ply(sub_ply_file)
+            # data = read_ply(sub_ply_file)
             sub_colors = np.vstack((data['red'], data['green'], data['blue'])).T    # N*3
             sub_labels = data['class']  # N*1
 
@@ -81,8 +81,9 @@ class S3DIS(Dataset):
 
     def __getitem__(self, item):
         pointcloud = np.array(self.input_trees[item].data, copy=False, dtype=np.float32)
-        label = self.input_labels[item]
-        # 打乱顺序
+        pointcloud = np.concatenate([pointcloud, self.input_colors[item]], axis=-1)
+        label = np.array(self.input_labels[item], copy=False, dtype=np.int64)
+        # 打乱顺序  # TODO:测试不进行随机下采样
         idx = np.arange(len(pointcloud))
         np.random.shuffle(idx)
         idx = idx[:self.num_points]
@@ -95,8 +96,8 @@ class S3DIS(Dataset):
 
 
 if __name__ == '__main__':  # 测试用
-    train = S3DIS(1024)
-    test = S3DIS(1024, 'test')
+    train = S3DIS(5, 1024)
+    test = S3DIS(5, 1024, 'val')
     for data, label in train:
         print(data.shape)
         print(label.shape)

@@ -28,7 +28,7 @@ class Seg(nn.Module):
         super(Seg, self).__init__()
         self.args = args
         self.part_num = part_num
-        self.conv1 = nn.Conv1d(3, 128, kernel_size=1, bias=False)
+        self.conv1 = nn.Conv1d(6, 128, kernel_size=1, bias=False)
         self.conv2 = nn.Conv1d(128, 128, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm1d(128)
         self.bn2 = nn.BatchNorm1d(128)
@@ -108,3 +108,16 @@ class SA_Layer(nn.Module):
         x_r = self.act(self.after_norm(self.trans_conv(x - x_r)))
         x = x + x_r
         return x
+
+
+def get_loss(logics, labels, class_weights):
+    '''
+    logics: B*one_hot*N
+    labels: B*N
+    '''
+    logics = logics.permute(0, 2, 1)    # B,N,C
+    n_class = logics.size(2)
+    logics = logics.reshape(-1, n_class)   # B*N,C
+    labels = labels.contiguous().view(-1)
+    loss = F.cross_entropy(logics, labels, class_weights)
+    return loss

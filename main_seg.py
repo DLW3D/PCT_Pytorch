@@ -5,14 +5,15 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR
+from helper_tool import DataProcessing as DP
 from data_S3DIS import S3DIS
-from model_seg import Seg
+from model_seg import Seg, get_loss
 import numpy as np
 from torch.utils.data import DataLoader
-from util import cal_loss, IOStream
+from util import seg_loss, IOStream
 import sklearn.metrics as metrics
 
-import time 
+import time
 
 def _init_():
     if not os.path.exists('checkpoints'):
@@ -34,6 +35,7 @@ def train(args, io):
 
     device = torch.device("cuda" if args.cuda else "cpu")
 
+    class_weights = torch.tensor(DP.get_class_weights('S3DIS'), dtype=torch.float32).to(device)
     model = Seg(args, part_num=13).to(device)
     print(str(model))
     model = nn.DataParallel(model)
@@ -46,8 +48,8 @@ def train(args, io):
         opt = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
 
     scheduler = CosineAnnealingLR(opt, args.epochs, eta_min=args.lr)
-    
-    criterion = cal_loss
+
+    criterion = seg_loss
     best_test_acc = 0
 
     for epoch in range(args.epochs):
@@ -60,35 +62,37 @@ def train(args, io):
         idx = 0
         total_time = 0.0
         for data, label in (train_loader):
-            data, label = data.to(device), label.to(device).squeeze() 
+            data, label = data.to(device), label.to(device).squeeze()
             data = data.permute(0, 2, 1)
             batch_size = data.size()[0]
             opt.zero_grad()
 
             start_time = time.time()
             logits = model(data)
-            loss = criterion(logits, label)
+            loss = get_loss(logits, label, class_weights)     # TODO: class_weight
             loss.backward()
             opt.step()
             end_time = time.time()
             total_time += (end_time - start_time)
-            
+
             preds = logits.max(dim=1)[1]
             count += batch_size
             train_loss += loss.item() * batch_size
             train_true.append(label.cpu().numpy())
             train_pred.append(preds.detach().cpu().numpy())
             idx += 1
-            
+
         print ('train total time is',total_time)
         train_true = np.concatenate(train_true)
         train_pred = np.concatenate(train_pred)
         outstr = 'Train %d, loss: %.6f, train acc: %.6f, train avg acc: %.6f' % (epoch,
-                                                                                train_loss*1.0/count,
-                                                                                metrics.accuracy_score(
-                                                                                train_true, train_pred),
-                                                                                metrics.balanced_accuracy_score(
-                                                                                train_true, train_pred))
+                                                                                 train_loss*1.0/count,
+                                                                                 metrics.accuracy_score(
+                                                                                    train_true.reshape(-1),
+                                                                                    train_pred.reshape(-1)),
+                                                                                 metrics.balanced_accuracy_score(
+                                                                                    train_true.reshape(-1),
+                                                                                    train_pred.reshape(-1)))
         io.cprint(outstr)
 
         ####################
@@ -117,8 +121,8 @@ def train(args, io):
         print ('test total time is', total_time)
         test_true = np.concatenate(test_true)
         test_pred = np.concatenate(test_pred)
-        test_acc = metrics.accuracy_score(test_true, test_pred)
-        avg_per_class_acc = metrics.balanced_accuracy_score(test_true, test_pred)
+        test_acc = metrics.accuracy_score(test_true.reshape(-1), test_pred.reshape(-1))
+        avg_per_class_acc = metrics.balanced_accuracy_score(test_true.reshape(-1), test_pred.reshape(-1))
         outstr = 'Test %d, loss: %.6f, test acc: %.6f, test avg acc: %.6f' % (epoch,
                                                                             test_loss*1.0/count,
                                                                             test_acc,
@@ -126,7 +130,7 @@ def train(args, io):
         io.cprint(outstr)
         if test_acc >= best_test_acc:
             best_test_acc = test_acc
-            torch.save(model.state_dict(), 'checkpoints/%s/models/model.t7' % args.exp_name)
+            # torch.save(model.state_dict(), 'checkpoints/%s/models/model.t7' % args.exp_name)
 
 
 def test(args, io):
@@ -136,8 +140,8 @@ def test(args, io):
     device = torch.device("cuda" if args.cuda else "cpu")
 
     model = Seg(args).to(device)
-    model = nn.DataParallel(model) 
-    
+    model = nn.DataParallel(model)
+
     model.load_state_dict(torch.load(args.model_path))
     model = model.eval()
     test_true = []
@@ -147,14 +151,14 @@ def test(args, io):
         data, label = data.to(device), label.to(device).squeeze()
         data = data.permute(0, 2, 1)
         logits = model(data)
-        preds = logits.max(dim=1)[1] 
+        preds = logits.max(dim=1)[1]
         test_true.append(label.cpu().numpy())
         test_pred.append(preds.detach().cpu().numpy())
 
     test_true = np.concatenate(test_true)
     test_pred = np.concatenate(test_pred)
-    test_acc = metrics.accuracy_score(test_true, test_pred)
-    avg_per_class_acc = metrics.balanced_accuracy_score(test_true, test_pred)
+    test_acc = metrics.accuracy_score(test_true.reshape(-1), test_pred.reshape(-1))
+    avg_per_class_acc = metrics.balanced_accuracy_score(test_true.reshape(-1), test_pred.reshape(-1))
     outstr = 'Test :: test acc: %.6f, test avg acc: %.6f'%(test_acc, avg_per_class_acc)
     io.cprint(outstr)
 
@@ -183,7 +187,7 @@ if __name__ == "__main__":
                         help='random seed (default: 1)')
     parser.add_argument('--eval', type=bool,  default=False,
                         help='evaluate the model')
-    parser.add_argument('--num_points', type=int, default=1024,     # Deleted
+    parser.add_argument('--num_points', type=int, default=40960,     # Deleted
                         help='num of points to use')
     parser.add_argument('--dropout', type=float, default=0.5,
                         help='dropout rate')
