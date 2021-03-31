@@ -80,7 +80,7 @@ class S3DIS(Dataset):
         print('Data Loaded Done!\n')    # 为测试准备重投影的指标
 
     def __getitem__(self, item):
-        pointcloud = np.array(self.input_trees[item].data, copy=False, dtype=np.float)
+        pointcloud = np.array(self.input_trees[item].data, copy=False, dtype=np.float32)
         label = self.input_labels[item]
         # 打乱顺序
         idx = np.arange(len(pointcloud))
