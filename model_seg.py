@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 
 class Seg(nn.Module):
-    def __init__(self, part_num=13):
+    def __init__(self, args, part_num=13):
         super(Seg, self).__init__()
         self.part_num = part_num
         self.conv1 = nn.Conv1d(6, 128, kernel_size=1, bias=False)

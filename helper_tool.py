@@ -46,7 +46,7 @@ class ConfigS3DIS:
     num_layers = 5  # Number of layers
     num_points = 40960  # Number of input points
     num_classes = 13  # Number of valid classes
-    sub_grid_size = 0.3  # preprocess_parameter
+    sub_grid_size = 0.04  # preprocess_parameter
 
     # batch_size = 6  # batch_size during training
     # val_batch_size = 6  # batch_size during validation and test

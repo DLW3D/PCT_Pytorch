@@ -18,7 +18,7 @@ anno_paths = [join(dataset_path, p) for p in anno_paths]    # 每个Annotations�
 gt_class = [x.rstrip() for x in open(join(BASE_DIR, 'meta/class_names.txt'))]
 gt_class2label = {cls: i for i, cls in enumerate(gt_class)}     # class：n
 
-sub_grid_size = 0.3
+sub_grid_size = 0.04
 original_pc_folder = join(dirname(dataset_path), 'original_ply')
 sub_pc_folder = join(dirname(dataset_path), 'input_{:.3f}'.format(sub_grid_size))
 os.mkdir(original_pc_folder) if not exists(original_pc_folder) else None
