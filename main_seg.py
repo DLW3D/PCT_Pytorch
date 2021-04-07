@@ -38,7 +38,7 @@ def train(args, io):
     device = torch.device("cuda" if args.cuda else "cpu")
 
     class_weights = torch.tensor(DP.get_class_weights('S3DIS'), dtype=torch.float32).to(device)
-    model = Seg(args, part_num=13).to(device)
+    model = Seg(args).to(device)
     print(str(model))
     model = nn.DataParallel(model)
 
