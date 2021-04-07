@@ -72,7 +72,7 @@ class S3DIS(Dataset):
 
             # self.input_trees += [search_tree.data.astype(np.float32)]
             # self.input_colors += [sub_colors.astype(np.float32)]
-            self.input_feature += [np.concatenate([search_tree.data.astype(np.float32),
+            self.input_feature += [np.concatenate([np.array(search_tree.data, copy=False, dtype=np.float32),
                                                    sub_colors.astype(np.float32)], axis=-1)]
             self.input_labels += [sub_labels.astype(np.int64)]
             self.input_names += [cloud_name]
@@ -96,7 +96,7 @@ class S3DIS(Dataset):
         return pointcloud, label
 
     def __len__(self):
-        return len(self.input_trees)
+        return len(self.input_feature)
 
 
 if __name__ == '__main__':  # 测试用

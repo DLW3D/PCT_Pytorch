@@ -100,7 +100,7 @@ def train(args, io):
         ####################
         # Test
         ####################
-        if epoch//10 == 0:
+        if epoch % 10 == 0:
             test_loss = 0.0
             count = 0.0
             model.eval()

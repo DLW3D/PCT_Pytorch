@@ -12,7 +12,7 @@ class Local_op(nn.Module):  # 处理临近点特征
         self.bn2 = nn.BatchNorm1d(out_channels)
 
     def forward(self, x):
-        b, n, s, d = x.size()  # torch.Size([32, 512, 32, 6]) 
+        b, n, s, d = x.size()  # torch.Size([32, 512, 32, 6])
         x = x.permute(0, 1, 3, 2)
         x = x.reshape(-1, d, s)  # B, D, N
         batch_size, _, N = x.size()
@@ -47,7 +47,7 @@ class Seg(nn.Module):
                                         nn.LeakyReLU(negative_slope=0.2))
 
         self.convs1 = nn.Conv1d(1024 * 3, 512, kernel_size=1, bias=False)
-        self.dp1 = nn.Dropout(p=args.dropout)
+        self.dp1 = nn.Dropout(0.5)
         self.convs2 = nn.Conv1d(512, 256, kernel_size=1, bias=False)
         self.convs3 = nn.Conv1d(256, self.part_num, kernel_size=1, bias=False)
         self.bns1 = nn.BatchNorm1d(512)
