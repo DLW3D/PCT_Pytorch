@@ -93,6 +93,6 @@ def get_loss(logics, labels, class_weights):
     logics = logics.permute(0, 2, 1)    # B,N,C
     n_class = logics.size(2)
     logics = logics.reshape(-1, n_class)   # B*N,C
-    labels = labels.contiguous().view(-1)
-    loss = F.cross_entropy(logics, labels, class_weights)
+    labels = labels.contiguous().view(-1)   # B*N,
+    loss = F.cross_entropy(logics, labels, class_weights[0])
     return loss

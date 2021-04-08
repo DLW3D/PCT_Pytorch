@@ -30,15 +30,21 @@ def _init_():
 
 
 def train(args, io):
-    train_data = S3DIS(5, args.num_points, partition='train')
-    test_data = S3DIS(5, args.num_points, partition='val')
+    train_loader = DataLoader(S3DIS(5, args.num_points, partition='train'), num_workers=2,
+                              batch_size=args.batch_size, shuffle=True, drop_last=True)
+    test_loader = DataLoader(S3DIS(5, args.num_points, partition='val'), num_workers=2,
+                             batch_size=args.test_batch_size, shuffle=True, drop_last=False)
+    # train_data = S3DIS(5, args.num_points, partition='train')
+    # test_data = S3DIS(5, args.num_points, partition='val')
 
     device = torch.device("cuda" if args.cuda else "cpu")
 
-    class_weights = torch.tensor(DP.get_class_weights('S3DIS'), dtype=torch.float32).to(device)
+    class_weights = torch.from_numpy(DP.get_class_weights('S3DIS')).to(device)
+    class_weights = class_weights.float()
     model = Seg(args).to(device)
     print(str(model))
     model = nn.DataParallel(model)
+    print('num_points:%s, batch_size:%s, %s' % (args.num_points, args.batch_size, args.test_batch_size))
 
     if args.use_sgd:
         print("Use SGD")
@@ -61,38 +67,40 @@ def train(args, io):
         train_true = []
         idx = 0
         total_time = 0.0
-        logits_ = []
-        label_ = []
-        for i in range(train_data.__len__()):
-            data, label = train_data.__getitem__(i)
-            data, label = torch.from_numpy(data).to(device), torch.from_numpy(label).to(device).squeeze()
-            data, label = torch.unsqueeze(data, 0), torch.unsqueeze(label, 0)
+        # logits_ = []
+        # label_ = []
+        # for i in range(train_data.__len__()):
+        #     data, label = train_data.__getitem__(i)
+        #     data, label = torch.from_numpy(data).to(device), torch.from_numpy(label).to(device).squeeze()
+        #     data, label = torch.unsqueeze(data, 0), torch.unsqueeze(label, 0)
+        for data, label in train_loader:
+            data, label = data.to(device), label.to(device).squeeze()
             data = data.permute(0, 2, 1)
             batch_size = args.batch_size
 
             start_time = time.time()
             logits = model(data)
-            logits_.append(logits)
-            label_.append(label)
-
-            if len(logits_) < batch_size:
-                continue
-
-            opt.zero_grad()
-            loss = get_loss(torch.cat(logits_, dim=-1), torch.cat(label_, dim=-1), class_weights)
-            logits_.clear()
-            label_.clear()
-            loss.backward()
-            opt.step()
             end_time = time.time()
             total_time += (end_time - start_time)
+            # logits_.append(logits)
+            # label_.append(label)
+
+            # if len(logits_) < batch_size:
+            #     continue
+
+            opt.zero_grad()
+            # logits, label = torch.cat(logits_, dim=-1), torch.cat(label_, dim=-1)
+            loss = get_loss(logits, label, class_weights)
+            loss.backward()
+            # logits_.clear()
+            # label_.clear()
+            opt.step()
 
             preds = logits.max(dim=1)[1]
             count += batch_size
             train_loss += loss.item() * batch_size
             train_true += label.cpu().numpy().tolist()[0]
             train_pred += preds.detach().cpu().numpy().tolist()[0]
-            idx += 1
 
         print('train total time is', total_time)
         outstr = 'Train %d, loss: %.6f, train acc: %.6f, train avg acc: %.6f' % (epoch,
@@ -108,30 +116,47 @@ def train(args, io):
         ####################
         # Test
         ####################
-        if epoch % 10 == 0:
+        if epoch % 5 == 0:
             test_loss = 0.0
             count = 0.0
             model.eval()
             test_pred = []
             test_true = []
             total_time = 0.0
-            for i in range(test_data.__len__()):
-                data, label = test_data.__getitem__(i)
-                data, label = torch.from_numpy(data).to(device), torch.from_numpy(label).to(device).squeeze()
-                data, label = torch.unsqueeze(data, 0), torch.unsqueeze(label, 0)
+            idx = 0
+            # logits_ = []
+            # label_ = []
+            # for i in range(test_data.__len__()):
+            #     data, label = test_data.__getitem__(i)
+            #     data, label = torch.from_numpy(data).to(device), torch.from_numpy(label).to(device).squeeze()
+            #     data, label = torch.unsqueeze(data, 0), torch.unsqueeze(label, 0)
+            for data, label in test_loader:
+                data, label = data.to(device), label.to(device).squeeze()
                 data = data.permute(0, 2, 1)
-                batch_size = args.batch_size
+                batch_size = args.test_batch_size
+
                 start_time = time.time()
                 logits = model(data)
                 end_time = time.time()
                 total_time += (end_time - start_time)
-                loss = criterion(logits, label)
+                # logits_.append(logits)
+                # label_.append(label)
+
+                # if len(logits_) < batch_size:
+                #     continue
+
+                # logits, label = torch.cat(logits_, dim=-1), torch.cat(label_, dim=-1)
+                loss = get_loss(logits, label, class_weights)
+                # logits_.clear()
+                # label_.clear()
+
                 preds = logits.max(dim=1)[1]
                 count += batch_size
                 test_loss += loss.item() * batch_size
                 test_true += label.cpu().numpy().tolist()[0]
                 test_pred += preds.detach().cpu().numpy().tolist()[0]
-            print ('test total time is', total_time)
+
+            print('test total time is', total_time)
             test_acc = metrics.accuracy_score(test_true, test_pred)
             avg_per_class_acc = metrics.balanced_accuracy_score(test_true, test_pred)
             outstr = '*** Test %d, loss: %.6f, test acc: %.6f, test avg acc: %.6f' % (epoch,
