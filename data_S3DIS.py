@@ -78,16 +78,16 @@ class S3DIS(Dataset):
             self.input_names += [cloud_name]
 
             size = sub_colors.shape[0] * 4 * 7
-            print(
-                '{:s} {:.1f} MB loaded in {:.1f}s'.format(kd_tree_file.replace('/', '\\').split('\\')[-1], size * 1e-6,
-                                                          time.time() - t0))
+            # print(
+            #     '{:s} {:.1f} MB loaded in {:.1f}s'.format(kd_tree_file.replace('/', '\\').split('\\')[-1], size * 1e-6,
+            #                                               time.time() - t0))
 
         print('Data Loaded Done!\n')  # 为测试准备重投影的指标
 
     def __getitem__(self, item):
         pointcloud = self.input_feature[item]
         label = self.input_labels[item]
-        # 打乱顺序  # TODO:测试不进行随机下采样
+        # 打乱顺序并采样
         idx = np.arange(len(pointcloud))
         np.random.shuffle(idx)
         idx = idx[:self.num_points]

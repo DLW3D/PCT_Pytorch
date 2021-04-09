@@ -166,11 +166,12 @@ def train(args, io):
             io.cprint(outstr)
             if test_acc >= best_test_acc:
                 best_test_acc = test_acc
-                # torch.save(model.state_dict(), 'checkpoints/%s/models/model.t7' % args.exp_name)
+                print('save new best model acc: %s' % best_test_acc)
+                torch.save(model.state_dict(), 'checkpoints/%s/models/model.t7' % args.exp_name)
 
 
 def test(args, io):
-    test_loader = DataLoader(S3DIS(5, args.num_points, partition='test'),
+    test_loader = DataLoader(S3DIS(5, args.num_points, partition='val'), num_workers=2,
                              batch_size=args.test_batch_size, shuffle=True, drop_last=False)
 
     device = torch.device("cuda" if args.cuda else "cpu")
@@ -178,6 +179,7 @@ def test(args, io):
     model = Seg(args).to(device)
     model = nn.DataParallel(model)
 
+    print('loading model: %s' % args.model_path)
     model.load_state_dict(torch.load(args.model_path))
     model = model.eval()
     test_true = []
@@ -186,8 +188,9 @@ def test(args, io):
     for data, label in test_loader:
         data, label = data.to(device), label.to(device).squeeze()
         data = data.permute(0, 2, 1)
-        logits = model(data)
-        preds = logits.max(dim=1)[1]
+        logits = model(data)            # B, one_hot, N
+        preds = logits.max(dim=1)[1]    # B, N
+
         test_true.append(label.cpu().numpy())
         test_pred.append(preds.detach().cpu().numpy())
 
@@ -212,7 +215,7 @@ if __name__ == "__main__":
                         help='Size of batch)')
     parser.add_argument('--epochs', type=int, default=250, metavar='N',
                         help='number of episode to train ')
-    parser.add_argument('--use_sgd', type=bool, default=True,
+    parser.add_argument('--use_sgd', type=int, default=1,
                         help='Use SGD')
     parser.add_argument('--lr', type=float, default=0.0001, metavar='LR',
                         help='learning rate (default: 0.001, 0.1 if using sgd)')
